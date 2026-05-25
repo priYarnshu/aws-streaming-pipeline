@@ -20,6 +20,9 @@ Order Events → Apache Kafka → Python Consumer → S3 (Parquet) → Glue Cata
 - Partitions data by year/month/day for query performance
 - Detects high-value orders (> Rs.10,000) during stream processing
 - Supports SQL analytics via Athena on raw S3 Parquet files
+- Dead Letter Queue for failed/invalid events with failure reason logging
+- CloudWatch custom metrics tracking events processed, failed, and S3 uploads
+- CloudWatch alarm triggering when DLQ rate exceeds 5 events per 5 minutes
 
 
 ## Project Structure
