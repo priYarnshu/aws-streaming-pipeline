@@ -1,16 +1,19 @@
-import boto3
 import json
 import random
 import time
 from faker import Faker
 from datetime import datetime
+from kafka import KafkaProducer
 
 fake = Faker('en_IN')
 
-STREAM_NAME = "order-events-stream"
-REGION = "ap-south-1"
+TOPIC_NAME = "order-events"
+KAFKA_SERVER = "localhost:9092"
 
-kinesis = boto3.client('kinesis', region_name=REGION)
+producer = KafkaProducer(
+    bootstrap_servers=KAFKA_SERVER,
+    value_serializer=lambda x: json.dumps(x).encode('utf-8')
+)
 
 PRODUCTS = [
     {"name": "iPhone 15", "category": "Electronics", "price": 79999},
@@ -45,22 +48,14 @@ def generate_order_event():
         "event_timestamp": datetime.utcnow().isoformat(),
     }
 
-def send_to_kinesis(event):
-    response = kinesis.put_record(
-        StreamName=STREAM_NAME,
-        Data=json.dumps(event),
-        PartitionKey=event["customer_id"]
-    )
-    return response
-
 if __name__ == "__main__":
-    print(f"Starting producer - sending to '{STREAM_NAME}'...")
+    print(f"Starting producer - sending to topic '{TOPIC_NAME}'...")
     print("Press Ctrl+C to stop\n")
 
     count = 0
     while True:
         event = generate_order_event()
-        response = send_to_kinesis(event)
+        producer.send(TOPIC_NAME, value=event)
         count += 1
-        print(f"[{count}] Sent order {event['order_id']} | {event['product_name']} | Rs.{event['total_amount']} | Shard: {response['ShardId']}")
+        print(f"[{count}] Sent order {event['order_id']} | {event['product_name']} | Rs.{event['total_amount']} | City: {event['customer_city']}")
         time.sleep(1)
