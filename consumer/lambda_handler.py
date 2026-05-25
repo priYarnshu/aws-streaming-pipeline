@@ -4,9 +4,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import io
-import os
 from kafka import KafkaConsumer
 from datetime import datetime
+from dlq_handler import send_to_dlq
 
 TOPIC_NAME = "order-events"
 KAFKA_SERVER = "localhost:9092"
@@ -19,7 +19,7 @@ consumer = KafkaConsumer(
     TOPIC_NAME,
     bootstrap_servers=KAFKA_SERVER,
     value_deserializer=lambda x: json.loads(x.decode('utf-8')),
-    auto_offset_reset='earliest',
+    auto_offset_reset='latest',
     group_id='order-consumer-group'
 )
 
@@ -30,10 +30,12 @@ def validate_event(event):
     ]
     for field in required_fields:
         if field not in event or event[field] is None:
-            return False
+            return False, f"Missing required field: {field}"
     if event["total_amount"] <= 0:
-        return False
-    return True
+        return False, f"Invalid total_amount: {event['total_amount']}"
+    if event["status"] not in ["PLACED", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"]:
+        return False, f"Invalid status: {event['status']}"
+    return True, None
 
 def transform_event(event):
     event["processed_at"] = datetime.utcnow().isoformat()
@@ -71,15 +73,18 @@ if __name__ == "__main__":
     for message in consumer:
         event = message.value
 
-        if not validate_event(event):
+        is_valid, reason = validate_event(event)
+
+        if not is_valid:
             invalid_count += 1
-            print(f"Invalid event skipped | total invalid: {invalid_count}")
+            send_to_dlq(event, reason)
+            print(f"Invalid event → DLQ | Reason: {reason} | Total DLQ: {invalid_count}")
             continue
 
         event = transform_event(event)
         batch.append(event)
         valid_count += 1
-        print(f"[{valid_count}] Consumed order {event['order_id']} | {event['product_name']} | Rs.{event['total_amount']} | High value: {event['is_high_value']}")
+        print(f"[{valid_count}] Consumed {event['order_id']} | {event['product_name']} | Rs.{event['total_amount']} | High value: {event['is_high_value']}")
 
         if len(batch) >= 10:
             upload_to_s3(batch)
