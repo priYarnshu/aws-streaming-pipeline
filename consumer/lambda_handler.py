@@ -7,6 +7,7 @@ import io
 from kafka import KafkaConsumer
 from datetime import datetime
 from dlq_handler import send_to_dlq
+from monitoring import record_event_processed, record_event_failed, record_s3_upload
 
 TOPIC_NAME = "order-events"
 KAFKA_SERVER = "localhost:9092"
@@ -60,6 +61,7 @@ def upload_to_s3(events):
         Key=s3_key,
         Body=buffer.getvalue()
     )
+    record_s3_upload(len(events))
     print(f"Uploaded {len(events)} events to s3://{S3_BUCKET}/{s3_key}")
 
 if __name__ == "__main__":
@@ -78,14 +80,17 @@ if __name__ == "__main__":
         if not is_valid:
             invalid_count += 1
             send_to_dlq(event, reason)
+            record_event_failed()
             print(f"Invalid event → DLQ | Reason: {reason} | Total DLQ: {invalid_count}")
             continue
 
         event = transform_event(event)
         batch.append(event)
         valid_count += 1
+        record_event_processed()
         print(f"[{valid_count}] Consumed {event['order_id']} | {event['product_name']} | Rs.{event['total_amount']} | High value: {event['is_high_value']}")
 
         if len(batch) >= 10:
             upload_to_s3(batch)
             batch = []
+            
